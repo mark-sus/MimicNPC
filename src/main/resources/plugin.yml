@@ -1,0 +1,16 @@
+name: RandomNPCs
+version: '1.0-SNAPSHOT'
+main: me.mvk.randomNPCs.RandomNPCPlugin
+api-version: '1.21'
+author: MVKSuS
+depend: [Citizens]
+softdepend: [voicechat]
+description: Спавнить блукаючих NPC зі скінами випадкових гравців сервера.
+commands:
+  randomnpc:
+    description: Керування плагіном RandomNPC
+    usage: /randomnpc <spawn|clear|reload|voicestatus|clearvoicelines>
+    permission: randomnpc.admin
+permissions:
+  randomnpc.admin:
+    default: op
