@@ -1,6 +1,6 @@
-name: RandomNPCs
+name: MimicNPC
 version: '1.0-SNAPSHOT'
-main: me.mvk.randomNPCs.RandomNPCPlugin
+main: me.mvk.mimicNPC.MimicNPCPlugin
 api-version: '1.21'
 author: MVKSuS
 depend: [Citizens]

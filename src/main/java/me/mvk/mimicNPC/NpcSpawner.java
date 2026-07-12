@@ -1,4 +1,4 @@
-package me.mvk.randomNPCs;
+package me.mvk.mimicNPC;
 
 import net.citizensnpcs.api.CitizensAPI;
 import net.citizensnpcs.api.npc.NPC;
@@ -11,6 +11,7 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -18,10 +19,10 @@ import java.util.Random;
 
 public class NpcSpawner {
 
-    private final RandomNPCPlugin plugin;
+    private final MimicNPCPlugin plugin;
     private final Random random = new Random();
 
-    public NpcSpawner(RandomNPCPlugin plugin) {
+    public NpcSpawner(MimicNPCPlugin plugin) {
         this.plugin = plugin;
     }
 
@@ -43,7 +44,12 @@ public class NpcSpawner {
             return;
         }
 
-        Location spawnLoc = findSafeLocationNear(targetPlayer.getLocation());
+        boolean caveMode = plugin.getConfig().getBoolean("spawn-in-caves", true);
+        Location spawnLoc = caveMode ? findCaveLocationNear(targetPlayer.getLocation()) : null;
+        if (spawnLoc == null) {
+            // Печеру не знайдено (або spawn-in-caves=false) - як і раніше, шукаємо місце на поверхні
+            spawnLoc = findSafeLocationNear(targetPlayer.getLocation());
+        }
         if (spawnLoc == null) {
             return;
         }
@@ -66,6 +72,10 @@ public class NpcSpawner {
         npc.spawn(spawnLoc);
         npc.setProtected(false);
         npc.data().setPersistent("randomnpc-owned", true);
+
+        // NPC "носить" не лише скін гравця, а й копію його нинішнього інвентаря на момент спавну
+        // (знімок один раз при спавні - подальші зміни в реальному інвентарі гравця вже не впливають на NPC)
+        copyInventory(skinOwner, npc);
 
         // Трохи випадкової швидкості (як у різних гравців різний "темп ходьби")
         double speed = 0.9 + random.nextDouble() * 0.3; // 0.9x - 1.2x від базової
@@ -129,6 +139,76 @@ public class NpcSpawner {
             }
         }
         return null;
+    }
+
+    // Шукає місце для спавну під землею - в "печері" (повітряна кишеня зі стелею з каменю
+    // над головою, а не просто яма без даху). Використовує ту саму горизонтальну відстань
+    // від гравця (spawn-radius-min/max), що й пошук на поверхні, але шукає по висоті
+    // окремо в діапазоні cave-min-y..cave-max-y.
+    private Location findCaveLocationNear(Location center) {
+        int minR = plugin.getConfig().getInt("spawn-radius-min", 5);
+        int maxR = plugin.getConfig().getInt("spawn-radius-max", 12);
+        World world = center.getWorld();
+        if (world == null) return null;
+
+        int minY = Math.max(world.getMinHeight() + 4, plugin.getConfig().getInt("cave-min-y", -40));
+        int maxY = Math.min(world.getSeaLevel(), plugin.getConfig().getInt("cave-max-y", 45));
+        if (maxY <= minY) return null;
+
+        for (int attempt = 0; attempt < 30; attempt++) {
+            double angle = random.nextDouble() * Math.PI * 2;
+            double dist = minR + random.nextDouble() * (maxR - minR);
+            int dx = (int) Math.round(Math.cos(angle) * dist);
+            int dz = (int) Math.round(Math.sin(angle) * dist);
+            int x = center.getBlockX() + dx;
+            int z = center.getBlockZ() + dz;
+
+            int surfaceY = world.getHighestBlockYAt(x, z);
+            // Стеля з каменю має бути щонайменше 4 блоки завтовшки над кишенею - інакше
+            // це просто яма на поверхні, а не справжня печера
+            int columnTop = Math.min(maxY, surfaceY - 4);
+            if (columnTop <= minY) continue;
+
+            int y = minY + random.nextInt(columnTop - minY + 1);
+
+            Block ground = world.getBlockAt(x, y, z);
+            Block above = world.getBlockAt(x, y + 1, z);
+            Block above2 = world.getBlockAt(x, y + 2, z);
+
+            if (ground.getType().isSolid() && above.getType().isAir() && above2.getType().isAir()
+                    && y < surfaceY - 3) {
+                return new Location(world, x + 0.5, y + 1, z + 0.5);
+            }
+        }
+        return null;
+    }
+
+    // Робить знімок інвентаря гравця, чий скін носить NPC, і переносить його на NPC-сутність
+    // (основний інвентар, броня, друга рука). Це саме КОПІЯ - оригінальний ItemStack клонується,
+    // тож подальші зміни в реальному інвентарі гравця NPC вже не зачіпають.
+    private void copyInventory(Player source, NPC npc) {
+        if (!(npc.getEntity() instanceof Player npcPlayer)) {
+            return;
+        }
+
+        ItemStack[] contents = source.getInventory().getContents();
+        ItemStack[] clonedContents = new ItemStack[contents.length];
+        for (int i = 0; i < contents.length; i++) {
+            clonedContents[i] = contents[i] == null ? null : contents[i].clone();
+        }
+        npcPlayer.getInventory().setContents(clonedContents);
+
+        ItemStack[] armor = source.getInventory().getArmorContents();
+        ItemStack[] clonedArmor = new ItemStack[armor.length];
+        for (int i = 0; i < armor.length; i++) {
+            clonedArmor[i] = armor[i] == null ? null : armor[i].clone();
+        }
+        npcPlayer.getInventory().setArmorContents(clonedArmor);
+
+        ItemStack offhand = source.getInventory().getItemInOffHand();
+        npcPlayer.getInventory().setItemInOffHand(offhand.clone());
+
+        npcPlayer.updateInventory();
     }
 
     private String formatLoc(Location loc) {

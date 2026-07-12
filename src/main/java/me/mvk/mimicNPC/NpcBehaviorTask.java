@@ -1,4 +1,4 @@
-package me.mvk.randomNPCs;
+package me.mvk.mimicNPC;
 
 import net.citizensnpcs.api.ai.Navigator;
 import net.citizensnpcs.api.npc.NPC;
@@ -16,10 +16,13 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
-import me.mvk.randomNPCs.voice.VoiceDistortion;
+import me.mvk.mimicNPC.voice.VoiceDistortion;
 import de.maxhenkel.voicechat.api.audiochannel.AudioPlayer;
 
+import org.bukkit.inventory.ItemStack;
+
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Random;
 import java.util.UUID;
@@ -37,18 +40,30 @@ import java.util.UUID;
  */
 public class NpcBehaviorTask extends BukkitRunnable {
 
-    private final RandomNPCPlugin plugin;
+    private final MimicNPCPlugin plugin;
     private final NPC npc;
     private final Random random = new Random();
 
-    private enum State { IDLE, MOVING_TO_TREE, MINING, MOVING_TO_MOB, ATTACKING }
+    private enum State { IDLE, MOVING_TO_TREE, MINING, MOVING_TO_ORE, MINING_ORE, MOVING_TO_MOB, ATTACKING }
+
+    // Інструмент, який використовується лише для розрахунку дропу з руди (не показується
+    // в руці NPC) - беремо незачаровану незламну кирку, щоб NPC завжди міг "видобути"
+    // будь-яку руду незалежно від її рівня твердості (аж до Ancient Debris)
+    private static final ItemStack ORE_MINING_TOOL = new ItemStack(Material.NETHERITE_PICKAXE);
 
     private State state = State.IDLE;
     private Block targetTree;
+    private Block targetOre;
     private LivingEntity targetMob;
     private int actionProgressTicks = 0;
     private int hitsLanded = 0;
     private int aliveTicks = 0;
+
+    // Все, що NPC "видобув" (руда, дерево) або "забрав" з убитого моба за час свого життя.
+    // Не потрапляє в реальний інвентар NPC і не падає на землю одразу - лежить тут,
+    // доки NPC не зникне (наближення гравця або кінець часу життя), і тоді висипається
+    // одним разом на землю в його останній локації.
+    private final List<ItemStack> collectedDrops = new ArrayList<>();
 
     // UUID гравця, чий скін носить цей NPC - потрібен, щоб дістати його голосовий буфер
     private final UUID skinOwnerId;
@@ -70,7 +85,7 @@ public class NpcBehaviorTask extends BukkitRunnable {
     // -1 = ще не заплановано першого відтворення (чекаємо, поки з'явиться хоч одна репліка)
     private int ticksUntilNextPlayback = -1;
 
-    public NpcBehaviorTask(RandomNPCPlugin plugin, NPC npc, UUID skinOwnerId) {
+    public NpcBehaviorTask(MimicNPCPlugin plugin, NPC npc, UUID skinOwnerId) {
         this.plugin = plugin;
         this.npc = npc;
         this.skinOwnerId = skinOwnerId;
@@ -79,8 +94,20 @@ public class NpcBehaviorTask extends BukkitRunnable {
     }
 
     public void start() {
+        plugin.registerTask(npc.getId(), this);
         // Тік кожні 10 ігрових тіків (0.5 сек) — достатньо плавно і не навантажує сервер
         this.runTaskTimer(plugin, 20L, 10L);
+    }
+
+    // Викликається NpcLootListener-ом, коли цей NPC вбиває моба - забирає дроп
+    // "у кишеню" NPC замість того, щоб він одразу впав на землю.
+    public void collectDrops(Collection<ItemStack> drops) {
+        if (drops == null) return;
+        for (ItemStack item : drops) {
+            if (item != null && item.getType() != Material.AIR) {
+                collectedDrops.add(item.clone());
+            }
+        }
     }
 
     @Override
@@ -94,6 +121,7 @@ public class NpcBehaviorTask extends BukkitRunnable {
             stopVoicePlayback();
             cancel();
             plugin.getOurNpcIds().remove(npc.getId());
+            plugin.unregisterTask(npc.getId());
             if (skinOwnerId != null) {
                 plugin.getVoiceCaptureManager().untrack(skinOwnerId);
             }
@@ -105,6 +133,7 @@ public class NpcBehaviorTask extends BukkitRunnable {
             stopVoicePlayback();
             cancel();
             plugin.getOurNpcIds().remove(npc.getId());
+            plugin.unregisterTask(npc.getId());
             if (skinOwnerId != null) {
                 plugin.getVoiceCaptureManager().untrack(skinOwnerId);
             }
@@ -138,6 +167,8 @@ public class NpcBehaviorTask extends BukkitRunnable {
 
         switch (state) {
             case MINING -> tickMining();
+            case MOVING_TO_ORE -> tickMovingToOre();
+            case MINING_ORE -> tickMiningOre();
             case ATTACKING -> tickAttacking();
             case MOVING_TO_TREE -> tickMovingToTree();
             case MOVING_TO_MOB -> tickMovingToMob();
@@ -148,13 +179,27 @@ public class NpcBehaviorTask extends BukkitRunnable {
     // Реальні гравці зазвичай біжать під час пересування і йдуть пішки під час дії
     private void updateSprinting() {
         if (!(npc.getEntity() instanceof Player npcPlayer)) return;
-        boolean shouldSprint = state == State.MOVING_TO_TREE || state == State.MOVING_TO_MOB;
+        boolean shouldSprint = state == State.MOVING_TO_TREE || state == State.MOVING_TO_MOB
+                || state == State.MOVING_TO_ORE;
         if (npcPlayer.isSprinting() != shouldSprint) {
             npcPlayer.setSprinting(shouldSprint);
         }
     }
 
     private void tickIdle(Location loc, World world) {
+        int oreRadius = plugin.getConfig().getInt("ore-search-radius", 6);
+        Block ore = findNearbyOre(loc, oreRadius);
+        if (ore != null) {
+            Location oreApproach = findApproachLocation(ore);
+            if (oreApproach != null) {
+                targetOre = ore;
+                state = State.MOVING_TO_ORE;
+                npc.getNavigator().setTarget(oreApproach);
+                return;
+            }
+            // Немає безпечного підходу до цієї руди - пробуємо дерево/моба нижче, ще раз повернемось пізніше
+        }
+
         int treeRadius = plugin.getConfig().getInt("tree-search-radius", 5);
         Block tree = findNearbyLog(loc, treeRadius);
         if (tree != null) {
@@ -232,8 +277,55 @@ public class NpcBehaviorTask extends BukkitRunnable {
         if (actionProgressTicks >= required) {
             world.playSound(targetTree.getLocation(), org.bukkit.Sound.BLOCK_WOOD_BREAK, 1f, 1f);
             world.spawnParticle(Particle.CLOUD, targetTree.getLocation().add(0.5, 0.5, 0.5), 15, 0.3, 0.3, 0.3, 0.02);
-            targetTree.breakNaturally();
+            // Замість breakNaturally() (яке одразу кидає дроп на землю) забираємо дроп
+            // "у кишеню" NPC - висипле все зібране пізніше, коли гравець підійде
+            Collection<ItemStack> drops = targetTree.getDrops();
+            collectDrops(drops);
+            targetTree.setType(Material.AIR);
             targetTree = null;
+            state = State.IDLE;
+        }
+    }
+
+    private void tickMovingToOre() {
+        if (targetOre == null || !isOre(targetOre.getType())) {
+            state = State.IDLE;
+            return;
+        }
+        Navigator nav = npc.getNavigator();
+        if (!nav.isNavigating() || npc.getEntity().getLocation().distanceSquared(targetOre.getLocation()) <= 6.25) {
+            // Дійшли (в радіусі ~2.5 блока)
+            state = State.MINING_ORE;
+            actionProgressTicks = 0;
+        }
+    }
+
+    private void tickMiningOre() {
+        if (targetOre == null || !isOre(targetOre.getType())) {
+            state = State.IDLE;
+            return;
+        }
+        World world = targetOre.getWorld();
+        world.spawnParticle(Particle.CRIT, targetOre.getLocation().add(0.5, 0.5, 0.5), 6, 0.2, 0.2, 0.2, 0.0);
+        world.playSound(targetOre.getLocation(), org.bukkit.Sound.BLOCK_STONE_HIT, 1f, 1f);
+        if (npc.getEntity() instanceof Player npcPlayer) {
+            PlayerAnimation.ARM_SWING.play(npcPlayer);
+        }
+
+        // Дивимось на блок, поки видобуваємо
+        faceBlock(targetOre);
+
+        actionProgressTicks += 10;
+        int required = plugin.getConfig().getInt("ore-mining-duration-ticks", 70);
+        if (actionProgressTicks >= required) {
+            world.playSound(targetOre.getLocation(), org.bukkit.Sound.BLOCK_STONE_BREAK, 1f, 1f);
+            world.spawnParticle(Particle.CLOUD, targetOre.getLocation().add(0.5, 0.5, 0.5), 15, 0.3, 0.3, 0.3, 0.02);
+            // Розрахунок дропу через "віртуальну" кирку - гарантує коректний дроп (напр. сирий
+            // алмаз/залізо) незалежно від того, чим "насправді" копає NPC
+            Collection<ItemStack> drops = targetOre.getDrops(ORE_MINING_TOOL);
+            collectDrops(drops);
+            targetOre.setType(Material.AIR);
+            targetOre = null;
             state = State.IDLE;
         }
     }
@@ -423,6 +515,21 @@ public class NpcBehaviorTask extends BukkitRunnable {
             Location loc = npc.getEntity().getLocation();
             World world = loc.getWorld();
             if (world != null) {
+                // Все, що NPC назбирав (руда, дерево, здобич з мобів), висипається тут -
+                // саме заради цього і зникнення при наближенні гравця більше не "з'їдає" здобич
+                if (!collectedDrops.isEmpty()) {
+                    for (ItemStack item : collectedDrops) {
+                        if (item != null && item.getType() != Material.AIR) {
+                            world.dropItemNaturally(loc, item);
+                        }
+                    }
+                    if (plugin.getConfig().getBoolean("voice.debug", true)) {
+                        plugin.getLogger().info("NPC #" + npc.getId() + " висипав зібрану здобич ("
+                                + collectedDrops.size() + " стеків) при зникненні у " + loc.getBlockX()
+                                + ", " + loc.getBlockY() + ", " + loc.getBlockZ() + ".");
+                    }
+                    collectedDrops.clear();
+                }
                 world.spawnParticle(Particle.LARGE_SMOKE, loc.add(0, 1, 0), 30, 0.3, 0.5, 0.3, 0.02);
                 world.spawnParticle(Particle.CLOUD, loc, 15, 0.3, 0.5, 0.3, 0.05);
                 world.playSound(loc, org.bukkit.Sound.ENTITY_ITEM_BREAK, 1f, 0.7f);
@@ -430,6 +537,7 @@ public class NpcBehaviorTask extends BukkitRunnable {
         }
         npc.destroy();
         plugin.getOurNpcIds().remove(npc.getId());
+        plugin.unregisterTask(npc.getId());
         if (skinOwnerId != null) {
             plugin.getVoiceCaptureManager().untrack(skinOwnerId);
         }
@@ -492,6 +600,31 @@ public class NpcBehaviorTask extends BukkitRunnable {
     private boolean isLog(Material material) {
         return material.name().endsWith("_LOG") || material.name().endsWith("_WOOD")
                 && !material.name().contains("STRIPPED");
+    }
+
+    private boolean isOre(Material material) {
+        return material.name().endsWith("_ORE") || material == Material.ANCIENT_DEBRIS;
+    }
+
+    private Block findNearbyOre(Location center, int radius) {
+        World world = center.getWorld();
+        Block closest = null;
+        double closestDist = Double.MAX_VALUE;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dy = -radius; dy <= radius; dy++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    Block b = world.getBlockAt(center.getBlockX() + dx, center.getBlockY() + dy, center.getBlockZ() + dz);
+                    if (isOre(b.getType())) {
+                        double d = b.getLocation().distanceSquared(center);
+                        if (d < closestDist) {
+                            closestDist = d;
+                            closest = b;
+                        }
+                    }
+                }
+            }
+        }
+        return closest;
     }
 
     private void faceBlock(Block block) {

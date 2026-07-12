@@ -1,4 +1,4 @@
-package me.mvk.randomNPCs;
+package me.mvk.mimicNPC;
 
 import net.citizensnpcs.api.CitizensAPI;
 import net.citizensnpcs.api.npc.NPC;
@@ -9,18 +9,25 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import de.maxhenkel.voicechat.api.BukkitVoicechatService;
-import me.mvk.randomNPCs.voice.NpcVoicechatPlugin;
-import me.mvk.randomNPCs.voice.VoiceCaptureManager;
-import me.mvk.randomNPCs.voice.VoiceLineArchive;
-import me.mvk.randomNPCs.voice.VoicePlaybackService;
+import me.mvk.mimicNPC.voice.NpcVoicechatPlugin;
+import me.mvk.mimicNPC.voice.VoiceCaptureManager;
+import me.mvk.mimicNPC.voice.VoiceLineArchive;
+import me.mvk.mimicNPC.voice.VoicePlaybackService;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class RandomNPCPlugin extends JavaPlugin {
+public class MimicNPCPlugin extends JavaPlugin {
 
     // Реєстр усіх NPC, створених саме цим плагіном (щоб не чіпати чужих Citizens NPC)
     private final Set<Integer> ourNpcIds = new HashSet<>();
+    // Активні NpcBehaviorTask по id NPC - потрібно, щоб NpcLootListener міг знайти,
+    // якому саме NPC зарахувати дроп з вбитого моба (замість того, щоб дроп падав на землю одразу)
+    private final Map<Integer, NpcBehaviorTask> activeTasks = new ConcurrentHashMap<>();
     private NpcSpawner spawner;
 
     // Голосова механіка (працює лише якщо на сервері встановлено Simple Voice Chat)
@@ -55,6 +62,32 @@ public class RandomNPCPlugin extends JavaPlugin {
         getLogger().info("[Voice] Успішно зареєстровано в Simple Voice Chat через BukkitVoicechatService.");
     }
 
+    // Citizens зберігає своїх NPC на диск і сам відновлює їх при старті сервера -
+    // якщо сервер вимкнувся не через штатний onDisable() (креш, kill -9, /stop без плагіна
+    // тощо), наш ourNpcIds (звичайний Set у пам'яті) обнуляється, а самі NPC на диску
+    // Citizens лишаються і заново спавняться при наступному onEnable(). Оскільки жоден
+    // NpcBehaviorTask для них більше не запускається (ourNpcIds порожній на старті),
+    // такі NPC назавжди залишаються "без ШІ" - не рухаються, не деспавняться при
+    // наближенні гравця. Тому при кожному onEnable() прибираємо всіх NPC, позначених
+    // персистентним тегом "randomnpc-owned" (він виставляється в NpcSpawner при спавні) -
+    // це гарантує чистий старт: жодного "привида" від попередньої сесії.
+    private void cleanupOrphanedNpcs() {
+        NPCRegistry registry = CitizensAPI.getNPCRegistry();
+        List<NPC> toRemove = new ArrayList<>();
+        for (NPC npc : registry) {
+            if (Boolean.TRUE.equals(npc.data().get("randomnpc-owned"))) {
+                toRemove.add(npc);
+            }
+        }
+        for (NPC npc : toRemove) {
+            npc.destroy();
+        }
+        if (!toRemove.isEmpty()) {
+            getLogger().info("Видалено " + toRemove.size() + " «завислих» NPC без ШІ, "
+                    + "що лишились від попереднього запуску сервера.");
+        }
+    }
+
     @Override
     public void onEnable() {
         if (getServer().getPluginManager().getPlugin("Citizens") == null) {
@@ -63,7 +96,11 @@ public class RandomNPCPlugin extends JavaPlugin {
             return;
         }
 
+        cleanupOrphanedNpcs();
+
         saveDefaultConfig();
+
+        getServer().getPluginManager().registerEvents(new NpcLootListener(this), this);
 
         registerVoicechatPlugin();
 
@@ -97,10 +134,23 @@ public class RandomNPCPlugin extends JavaPlugin {
             }
         }
         ourNpcIds.clear();
+        activeTasks.clear();
     }
 
     public Set<Integer> getOurNpcIds() {
         return ourNpcIds;
+    }
+
+    public void registerTask(int npcId, NpcBehaviorTask task) {
+        activeTasks.put(npcId, task);
+    }
+
+    public void unregisterTask(int npcId) {
+        activeTasks.remove(npcId);
+    }
+
+    public NpcBehaviorTask getTaskForNpc(int npcId) {
+        return activeTasks.get(npcId);
     }
 
     @Override

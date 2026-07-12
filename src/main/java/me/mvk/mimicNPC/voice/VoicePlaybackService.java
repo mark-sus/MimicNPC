@@ -1,4 +1,4 @@
-package me.mvk.randomNPCs.voice;
+package me.mvk.mimicNPC.voice;
 
 import de.maxhenkel.voicechat.api.VoicechatServerApi;
 import de.maxhenkel.voicechat.api.audiochannel.AudioPlayer;

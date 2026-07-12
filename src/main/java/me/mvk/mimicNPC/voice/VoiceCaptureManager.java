@@ -1,8 +1,8 @@
-package me.mvk.randomNPCs.voice;
+package me.mvk.mimicNPC.voice;
 
 import de.maxhenkel.voicechat.api.VoicechatServerApi;
 import de.maxhenkel.voicechat.api.opus.OpusDecoder;
-import me.mvk.randomNPCs.RandomNPCPlugin;
+import me.mvk.mimicNPC.MimicNPCPlugin;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 
@@ -19,7 +19,7 @@ public class VoiceCaptureManager {
 
     private final Random random = new Random();
 
-    private final RandomNPCPlugin plugin;
+    private final MimicNPCPlugin plugin;
     private volatile VoicechatServerApi api;
 
     private final Map<UUID, OpusDecoder> decoders = new ConcurrentHashMap<>();
@@ -28,7 +28,7 @@ public class VoiceCaptureManager {
     // Лічильник пакетів на гравця - лише щоб не спамити лог на кожен пакет мікрофона
     private final Map<UUID, AtomicInteger> packetCounters = new ConcurrentHashMap<>();
 
-    public VoiceCaptureManager(RandomNPCPlugin plugin) {
+    public VoiceCaptureManager(MimicNPCPlugin plugin) {
         this.plugin = plugin;
     }
 

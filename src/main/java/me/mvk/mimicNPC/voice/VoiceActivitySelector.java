@@ -1,4 +1,4 @@
-package me.mvk.randomNPCs.voice;
+package me.mvk.mimicNPC.voice;
 
 public final class VoiceActivitySelector {
 

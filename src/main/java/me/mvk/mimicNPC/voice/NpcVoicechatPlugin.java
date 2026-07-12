@@ -1,20 +1,20 @@
-package me.mvk.randomNPCs.voice;
+package me.mvk.mimicNPC.voice;
 
 import de.maxhenkel.voicechat.api.VoicechatApi;
 import de.maxhenkel.voicechat.api.VoicechatPlugin;
 import de.maxhenkel.voicechat.api.VoicechatServerApi;
 import de.maxhenkel.voicechat.api.events.EventRegistration;
 import de.maxhenkel.voicechat.api.events.MicrophonePacketEvent;
-import me.mvk.randomNPCs.RandomNPCPlugin;
+import me.mvk.mimicNPC.MimicNPCPlugin;
 
 import java.util.UUID;
 
 
 public class NpcVoicechatPlugin implements VoicechatPlugin {
 
-    private final RandomNPCPlugin ownerPlugin;
+    private final MimicNPCPlugin ownerPlugin;
 
-    public NpcVoicechatPlugin(RandomNPCPlugin ownerPlugin) {
+    public NpcVoicechatPlugin(MimicNPCPlugin ownerPlugin) {
         this.ownerPlugin = ownerPlugin;
     }
 

@@ -1,6 +1,6 @@
-package me.mvk.randomNPCs.voice;
+package me.mvk.mimicNPC.voice;
 
-import me.mvk.randomNPCs.RandomNPCPlugin;
+import me.mvk.mimicNPC.MimicNPCPlugin;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -17,10 +17,10 @@ public class VoiceLineArchive {
 
     private static final int SAMPLE_RATE = 48000;
 
-    private final RandomNPCPlugin plugin;
+    private final MimicNPCPlugin plugin;
     private final AtomicInteger savedThisSession = new AtomicInteger(0);
 
-    public VoiceLineArchive(RandomNPCPlugin plugin) {
+    public VoiceLineArchive(MimicNPCPlugin plugin) {
         this.plugin = plugin;
     }
 
