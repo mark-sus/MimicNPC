@@ -2,14 +2,10 @@ package me.mvk.mimicNPC.voice;
 
 public final class VoiceActivitySelector {
 
-    // Поріг RMS-амплітуди (з діапазону short, максимум 32767), нижче якого кадр вважається тишею.
-    // Значення підібране емпірично: звичайна кімнатна тиша/шум мікрофона зазвичай нижче ~150-250.
     private static final int DEFAULT_SILENCE_RMS_THRESHOLD = 300;
 
-    // Розмір кадру для оцінки гучності: 20 мс при 48kHz
     private static final int FRAME_SIZE = 960;
 
-    // Мінімальна частка "голосних" кадрів у відрізку, щоб вважати його придатним (не тишею)
     private static final double MIN_VOICED_RATIO = 0.15;
 
     private VoiceActivitySelector() {
@@ -25,7 +21,6 @@ public final class VoiceActivitySelector {
             return null;
         }
 
-        // Якщо в буфері менше даних, ніж потрібно - беремо все, що є, якщо там взагалі є голос
         if (full.length <= segmentLength) {
             return hasVoiceActivity(full, silenceRmsThreshold) ? full : null;
         }
@@ -45,7 +40,6 @@ public final class VoiceActivitySelector {
 
         int framesPerSegment = Math.max(1, segmentLength / FRAME_SIZE);
         if (framesPerSegment > frameCount) {
-            // Відрізок довший за те, що можемо оцінити по кадрах - fallback на весь буфер
             return hasVoiceActivity(full, silenceRmsThreshold) ? trimOrPad(full, segmentLength) : null;
         }
 
@@ -68,7 +62,6 @@ public final class VoiceActivitySelector {
                 int windowStartFrame = f - framesPerSegment + 1;
                 double voicedRatio = (double) voicedInWindow / framesPerSegment;
                 double avgRms = windowSum / framesPerSegment;
-                // Пріоритет - частка голосних кадрів, середня гучність лише розрізняє рівні варіанти
                 double score = voicedRatio * 1_000_000.0 + avgRms;
                 if (score > bestScore) {
                     bestScore = score;
