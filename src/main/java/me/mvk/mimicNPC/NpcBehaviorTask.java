@@ -28,15 +28,15 @@ import java.util.Random;
 import java.util.UUID;
 
 /**
- * Кожні пів секунди перевіряє оточення NPC і вирішує, що робити:
- * 1) якщо поруч гравець - зникнути з димом
- * 2) якщо поруч дерево - піти до нього і "зрубати"
- * 3) якщо поруч мирний моб - піти до нього і вдарити
- * 4) інакше - випадково блукати
- * Паралельно (якщо NPC "балакучий" - див. voice.scare-chance) поки NPC живий,
- * він періодично запам'ятовує нові репліки голосу гравця і з інтервалом
- * voice.playback-gap-min/max-seconds відтворює випадкову із запам'ятованих.
- * Звук примусово зупиняється в момент зникнення NPC.
+ * Every half a second checks the NPC encirclement and decides what to do:
+ * 1) if there is a player nearby - disappear with smoke
+ * 2) if there is a tree - go to it and "cut"
+ * 3) if there is a peaceful mob nearby - go to it and hit
+ * 4) otherwise - accidentally wander
+ * Parallel (if NPC "talking" - see voice.scare-chance) while NPC is alive,
+ * he periodically remembers new remarks of the player's voice and at intervals
+ * voice.playback-gap-min/max-seconds reproduces random from memorized.
+ * The sound forcibly stops at the time of the NPC disappearance.
  */
 public class NpcBehaviorTask extends BukkitRunnable {
 
@@ -46,9 +46,9 @@ public class NpcBehaviorTask extends BukkitRunnable {
 
     private enum State { IDLE, MOVING_TO_TREE, MINING, MOVING_TO_ORE, MINING_ORE, MOVING_TO_MOB, ATTACKING }
 
-    // Інструмент, який використовується лише для розрахунку дропу з руди (не показується
-    // в руці NPC) - беремо незачаровану незламну кирку, щоб NPC завжди міг "видобути"
-    // будь-яку руду незалежно від її рівня твердості (аж до Ancient Debris)
+    // Tool used only to calculate ore (not shown
+    // in the hand of NPC) - take an unfading unbreakable pickaxe so that NPC can always "mine"
+    // any ore regardless of its level of hardness (up to Ancient Debris)
     private static final ItemStack ORE_MINING_TOOL = new ItemStack(Material.NETHERITE_PICKAXE);
 
     private State state = State.IDLE;
@@ -59,30 +59,18 @@ public class NpcBehaviorTask extends BukkitRunnable {
     private int hitsLanded = 0;
     private int aliveTicks = 0;
 
-    // Все, що NPC "видобув" (руда, дерево) або "забрав" з убитого моба за час свого життя.
-    // Не потрапляє в реальний інвентар NPC і не падає на землю одразу - лежить тут,
-    // доки NPC не зникне (наближення гравця або кінець часу життя), і тоді висипається
-    // одним разом на землю в його останній локації.
+    // NPC mined resources
     private final List<ItemStack> collectedDrops = new ArrayList<>();
 
-    // UUID гравця, чий скін носить цей NPC - потрібен, щоб дістати його голосовий буфер
     private final UUID skinOwnerId;
 
-    // Чи "балакучий" цей конкретний NPC - визначається один раз при спавні через voice.scare-chance,
-    // щоб не кожен NPC постійно щось бубонів (для варіативності)
     private final boolean voiceEnabledForThisNpc;
 
-    // Репліки голосу гравця, які NPC вже "запам'ятав" за час свого життя (вже спотворені,
-    // готові до відтворення). Поповнюється кожні voice.memorize-interval-seconds секунд,
-    // поки скін-власник щось каже в мікрофон поблизу NPC.
     private final List<short[]> memorizedVoiceLines = new ArrayList<>();
 
-    // Плеєр поточного відтворення - потрібен, щоб примусово зупинити звук,
-    // коли NPC зникає (інакше SVC дограє кліп навіть після знищення NPC).
     private AudioPlayer currentVoicePlayer;
 
     private int ticksUntilNextMemorize = 0;
-    // -1 = ще не заплановано першого відтворення (чекаємо, поки з'явиться хоч одна репліка)
     private int ticksUntilNextPlayback = -1;
 
     public NpcBehaviorTask(MimicNPCPlugin plugin, NPC npc, UUID skinOwnerId) {
@@ -95,12 +83,9 @@ public class NpcBehaviorTask extends BukkitRunnable {
 
     public void start() {
         plugin.registerTask(npc.getId(), this);
-        // Тік кожні 10 ігрових тіків (0.5 сек) — достатньо плавно і не навантажує сервер
         this.runTaskTimer(plugin, 20L, 10L);
     }
 
-    // Викликається NpcLootListener-ом, коли цей NPC вбиває моба - забирає дроп
-    // "у кишеню" NPC замість того, щоб він одразу впав на землю.
     public void collectDrops(Collection<ItemStack> drops) {
         if (drops == null) return;
         for (ItemStack item : drops) {
@@ -152,7 +137,7 @@ public class NpcBehaviorTask extends BukkitRunnable {
         World world = loc.getWorld();
         if (world == null) return;
 
-        // 1. Перевірка на близького гравця -> зникнення
+        // 1. Check how close player
         double despawnDist = plugin.getConfig().getDouble("despawn-distance", 3.0);
         Player nearestPlayer = findNearestPlayer(loc, despawnDist);
         if (nearestPlayer != null) {
@@ -176,7 +161,7 @@ public class NpcBehaviorTask extends BukkitRunnable {
         }
     }
 
-    // Реальні гравці зазвичай біжать під час пересування і йдуть пішки під час дії
+    // Realistic NPC movement
     private void updateSprinting() {
         if (!(npc.getEntity() instanceof Player npcPlayer)) return;
         boolean shouldSprint = state == State.MOVING_TO_TREE || state == State.MOVING_TO_MOB
@@ -197,7 +182,6 @@ public class NpcBehaviorTask extends BukkitRunnable {
                 npc.getNavigator().setTarget(oreApproach);
                 return;
             }
-            // Немає безпечного підходу до цієї руди - пробуємо дерево/моба нижче, ще раз повернемось пізніше
         }
 
         int treeRadius = plugin.getConfig().getInt("tree-search-radius", 5);
@@ -205,7 +189,6 @@ public class NpcBehaviorTask extends BukkitRunnable {
         if (tree != null) {
             Location approach = findApproachLocation(tree);
             if (approach == null) {
-                // Немає безпечного підходу до цього дерева - шукаємо інше наступного разу
                 wander(loc, world);
                 return;
             }
@@ -227,7 +210,6 @@ public class NpcBehaviorTask extends BukkitRunnable {
         wander(loc, world);
     }
 
-    // Шукає сусідню з деревом клітинку, куди NPC реально може стати (не в сам стовбур)
     private Location findApproachLocation(Block tree) {
         World world = tree.getWorld();
         int[][] offsets = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
@@ -262,14 +244,14 @@ public class NpcBehaviorTask extends BukkitRunnable {
             return;
         }
         World world = targetTree.getWorld();
-        // Анімація/ефект видобутку (без прив'язки до BlockData - стабільно на всіх версіях)
+        // Mining animation
         world.spawnParticle(Particle.CRIT, targetTree.getLocation().add(0.5, 0.5, 0.5), 6, 0.2, 0.2, 0.2, 0.0);
         world.playSound(targetTree.getLocation(), org.bukkit.Sound.BLOCK_WOOD_HIT, 1f, 1f);
         if (npc.getEntity() instanceof Player npcPlayer) {
             PlayerAnimation.ARM_SWING.play(npcPlayer);
         }
 
-        // Дивимось на блок, поки рубаємо
+        // look on the block when mine
         faceBlock(targetTree);
 
         actionProgressTicks += 10;
@@ -277,8 +259,6 @@ public class NpcBehaviorTask extends BukkitRunnable {
         if (actionProgressTicks >= required) {
             world.playSound(targetTree.getLocation(), org.bukkit.Sound.BLOCK_WOOD_BREAK, 1f, 1f);
             world.spawnParticle(Particle.CLOUD, targetTree.getLocation().add(0.5, 0.5, 0.5), 15, 0.3, 0.3, 0.3, 0.02);
-            // Замість breakNaturally() (яке одразу кидає дроп на землю) забираємо дроп
-            // "у кишеню" NPC - висипле все зібране пізніше, коли гравець підійде
             Collection<ItemStack> drops = targetTree.getDrops();
             collectDrops(drops);
             targetTree.setType(Material.AIR);
@@ -294,7 +274,6 @@ public class NpcBehaviorTask extends BukkitRunnable {
         }
         Navigator nav = npc.getNavigator();
         if (!nav.isNavigating() || npc.getEntity().getLocation().distanceSquared(targetOre.getLocation()) <= 6.25) {
-            // Дійшли (в радіусі ~2.5 блока)
             state = State.MINING_ORE;
             actionProgressTicks = 0;
         }
@@ -312,7 +291,6 @@ public class NpcBehaviorTask extends BukkitRunnable {
             PlayerAnimation.ARM_SWING.play(npcPlayer);
         }
 
-        // Дивимось на блок, поки видобуваємо
         faceBlock(targetOre);
 
         actionProgressTicks += 10;
@@ -320,8 +298,6 @@ public class NpcBehaviorTask extends BukkitRunnable {
         if (actionProgressTicks >= required) {
             world.playSound(targetOre.getLocation(), org.bukkit.Sound.BLOCK_STONE_BREAK, 1f, 1f);
             world.spawnParticle(Particle.CLOUD, targetOre.getLocation().add(0.5, 0.5, 0.5), 15, 0.3, 0.3, 0.3, 0.02);
-            // Розрахунок дропу через "віртуальну" кирку - гарантує коректний дроп (напр. сирий
-            // алмаз/залізо) незалежно від того, чим "насправді" копає NPC
             Collection<ItemStack> drops = targetOre.getDrops(ORE_MINING_TOOL);
             collectDrops(drops);
             targetOre.setType(Material.AIR);
@@ -359,7 +335,6 @@ public class NpcBehaviorTask extends BukkitRunnable {
         }
 
         actionProgressTicks += 10;
-        // Удар раз на ~0.7 секунди
         if (actionProgressTicks >= 14) {
             actionProgressTicks = 0;
             faceEntity(targetMob);
@@ -384,7 +359,6 @@ public class NpcBehaviorTask extends BukkitRunnable {
 
     private void wander(Location loc, World world) {
         if (npc.getNavigator().isNavigating()) return;
-        // Невеликий випадковий рух, щоб NPC не стояв на місці вічно
         if (random.nextInt(4) == 0) {
             double angle = random.nextDouble() * Math.PI * 2;
             double dist = 3 + random.nextDouble() * 5;
@@ -395,9 +369,7 @@ public class NpcBehaviorTask extends BukkitRunnable {
         }
     }
 
-    // Кожні voice.memorize-interval-seconds секунд намагається "запам'ятати" нову репліку -
-    // бере голосний відрізок з буфера гравця, спотворює і додає у список memorizedVoiceLines
-    // (список обмежений voice.memorize-max-lines - найстаріші репліки витісняються новими).
+
     private void tickVoiceMemory() {
         if (!voiceEnabledForThisNpc || skinOwnerId == null) {
             return;
@@ -426,7 +398,7 @@ public class NpcBehaviorTask extends BukkitRunnable {
         int maxLines = plugin.getConfig().getInt("voice.memorize-max-lines", 6);
         memorizedVoiceLines.add(distorted);
         while (memorizedVoiceLines.size() > Math.max(1, maxLines)) {
-            memorizedVoiceLines.remove(0); // витісняємо найстарішу репліку новою
+            memorizedVoiceLines.remove(0);
         }
 
         String skinOwnerName = Bukkit.getOfflinePlayer(skinOwnerId).getName();
@@ -439,15 +411,13 @@ public class NpcBehaviorTask extends BukkitRunnable {
         }
     }
 
-    // Поки NPC живий і має хоч одну запам'ятовану репліку - раз у voice.playback-gap-min/max-seconds
-    // (проміжок МІЖ репліками, не тривалість самої репліки) програє випадкову з них.
+    // Playback random saved player voice line
     private void tickVoicePlayback() {
         if (!voiceEnabledForThisNpc || memorizedVoiceLines.isEmpty()) {
             return;
         }
 
         if (ticksUntilNextPlayback < 0) {
-            // Щойно з'явилась перша репліка - плануємо перше відтворення з невеликою затримкою
             ticksUntilNextPlayback = randomGapTicks();
             return;
         }
@@ -478,12 +448,9 @@ public class NpcBehaviorTask extends BukkitRunnable {
 
         currentVoicePlayer = plugin.getVoicePlaybackService().playAt(npcLoc, line);
         if (currentVoicePlayer == null) {
-            // Відтворення не вдалось запустити (SVC не готовий/канал не створився) - спробуємо пізніше
             ticksUntilNextPlayback = randomGapTicks();
             return;
         }
-
-        // Плануємо наступне відтворення: тривалість поточного кліпу + випадковий проміжок 2-3 сек
         int clipDurationTicks = (int) Math.ceil(line.length / 48000.0 * 20.0);
         ticksUntilNextPlayback = clipDurationTicks + randomGapTicks();
 
@@ -495,8 +462,7 @@ public class NpcBehaviorTask extends BukkitRunnable {
         }
     }
 
-    // Примусово зупиняє звук, що зараз грає (якщо грає) - викликається, коли NPC зникає,
-    // щоб голос не продовжував лунати вже після того, як NPC візуально пропав.
+    // Stop playing voice line vhen NPC despawn
     private void stopVoicePlayback() {
         if (currentVoicePlayer != null) {
             try {
@@ -515,8 +481,6 @@ public class NpcBehaviorTask extends BukkitRunnable {
             Location loc = npc.getEntity().getLocation();
             World world = loc.getWorld();
             if (world != null) {
-                // Все, що NPC назбирав (руда, дерево, здобич з мобів), висипається тут -
-                // саме заради цього і зникнення при наближенні гравця більше не "з'їдає" здобич
                 if (!collectedDrops.isEmpty()) {
                     for (ItemStack item : collectedDrops) {
                         if (item != null && item.getType() != Material.AIR) {
@@ -544,7 +508,7 @@ public class NpcBehaviorTask extends BukkitRunnable {
         cancel();
     }
 
-    // ---- Допоміжні методи пошуку ----
+    // ---- Help search methods ----
 
     private Player findNearestPlayer(Location loc, double maxDist) {
         double maxDistSq = maxDist * maxDist;
