@@ -8,12 +8,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDeathEvent;
 
 /**
- * Коли наш NPC вбиває мирного моба (див. NpcBehaviorTask.tickAttacking), звичайний
- * EntityDeathEvent все одно спрацьовує і дроп падає на землю сам по собі. Цей слухач
- * перехоплює такі смерті, забирає дроп собі в "інвентар" NPC (щоб він виглядав так,
- * ніби зібрав здобич) і прибирає його зі стандартного списку дропу, щоб предмети
- * не з'явились на землі одразу. Пізніше NpcBehaviorTask сам висипле все зібране,
- * коли гравець підійде близько (або коли NPC зникне за часом життя).
+ * When NPC kill mob or mine blocks he save items in own inventory 
+ * and when you scare NPC he drop all mined loot
  */
 public class NpcLootListener implements Listener {
 
