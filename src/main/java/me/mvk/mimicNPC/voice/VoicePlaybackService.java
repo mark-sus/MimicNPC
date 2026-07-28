@@ -13,7 +13,7 @@ import java.util.logging.Logger;
 
 public class VoicePlaybackService {
 
-    // Фіксований розмір фрейму, який вимагає SVC API (20 мс при 48kHz)
+    
     private static final int FRAME_SIZE = 960;
 
     private final VoiceCaptureManager captureManager;
@@ -55,7 +55,6 @@ public class VoicePlaybackService {
                 api.createPosition(location.getX(), location.getY(), location.getZ())
         );
         if (channel == null) {
-            // null означає, що жоден онлайн-гравець зараз не має встановленого SVC-клієнта
             log("playAt() скасовано: createLocationalAudioChannel повернув null "
                     + "(ймовірно, жоден гравець поблизу не має встановленого клієнта Simple Voice Chat).");
             return null;
@@ -67,7 +66,7 @@ public class VoicePlaybackService {
         AudioPlayer player = api.createAudioPlayer(channel, api.createEncoder(), () -> {
             int pos = cursor.getAndAdd(FRAME_SIZE);
             if (pos >= pcm.length) {
-                return null; // сигнал кінця відтворення для AudioPlayer
+                return null; 
             }
             int served = framesServed.incrementAndGet();
             if (served == 1 || served % 50 == 0) {
