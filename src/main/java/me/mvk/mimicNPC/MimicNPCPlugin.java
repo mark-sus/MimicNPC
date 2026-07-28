@@ -23,18 +23,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class MimicNPCPlugin extends JavaPlugin {
 
-    // Реєстр усіх NPC, створених саме цим плагіном (щоб не чіпати чужих Citizens NPC)
     private final Set<Integer> ourNpcIds = new HashSet<>();
-    // Активні NpcBehaviorTask по id NPC - потрібно, щоб NpcLootListener міг знайти,
-    // якому саме NPC зарахувати дроп з вбитого моба (замість того, щоб дроп падав на землю одразу)
     private final Map<Integer, NpcBehaviorTask> activeTasks = new ConcurrentHashMap<>();
     private NpcSpawner spawner;
 
-    // Голосова механіка (працює лише якщо на сервері встановлено Simple Voice Chat)
     private final VoiceCaptureManager voiceCaptureManager = new VoiceCaptureManager(this);
     private final VoicePlaybackService voicePlaybackService = new VoicePlaybackService(voiceCaptureManager, this);
-    // Постійний архів деяких голосових кліпів на диску - живе окремо від voiceCaptureManager
-    // і не зникає при рестарті сервера, доки його не очистять командою /randomnpc clearvoicelines
     private final VoiceLineArchive voiceLineArchive = new VoiceLineArchive(this);
 
     public VoiceCaptureManager getVoiceCaptureManager() {
@@ -49,8 +43,6 @@ public class MimicNPCPlugin extends JavaPlugin {
         return voiceLineArchive;
     }
 
-    // Реєструє наш VoicechatPlugin у SVC. На Bukkit/Spigot/Paper це робиться
-    // ЯВНО через ServicesManager - NpcVoicechatPlugin.initialize() не викликається сам собою.
     private void registerVoicechatPlugin() {
         BukkitVoicechatService service = getServer().getServicesManager().load(BukkitVoicechatService.class);
         if (service == null) {
@@ -62,15 +54,6 @@ public class MimicNPCPlugin extends JavaPlugin {
         getLogger().info("[Voice] Успішно зареєстровано в Simple Voice Chat через BukkitVoicechatService.");
     }
 
-    // Citizens зберігає своїх NPC на диск і сам відновлює їх при старті сервера -
-    // якщо сервер вимкнувся не через штатний onDisable() (креш, kill -9, /stop без плагіна
-    // тощо), наш ourNpcIds (звичайний Set у пам'яті) обнуляється, а самі NPC на диску
-    // Citizens лишаються і заново спавняться при наступному onEnable(). Оскільки жоден
-    // NpcBehaviorTask для них більше не запускається (ourNpcIds порожній на старті),
-    // такі NPC назавжди залишаються "без ШІ" - не рухаються, не деспавняться при
-    // наближенні гравця. Тому при кожному onEnable() прибираємо всіх NPC, позначених
-    // персистентним тегом "randomnpc-owned" (він виставляється в NpcSpawner при спавні) -
-    // це гарантує чистий старт: жодного "привида" від попередньої сесії.
     private void cleanupOrphanedNpcs() {
         NPCRegistry registry = CitizensAPI.getNPCRegistry();
         List<NPC> toRemove = new ArrayList<>();
@@ -109,7 +92,6 @@ public class MimicNPCPlugin extends JavaPlugin {
         long intervalSeconds = getConfig().getLong("spawn-interval-seconds", 300);
         long intervalTicks = intervalSeconds * 20L;
 
-        // Перший спавн через 5 сек після старту, далі — за інтервалом з конфігу
         Bukkit.getScheduler().runTaskTimer(this, () -> {
             try {
                 spawner.trySpawnNpc();
@@ -125,7 +107,6 @@ public class MimicNPCPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        // При вимкненні плагіна прибираємо всіх наших NPC, щоб вони не залишались "мертвим" сміттям
         NPCRegistry registry = CitizensAPI.getNPCRegistry();
         for (Integer id : new HashSet<>(ourNpcIds)) {
             NPC npc = registry.getById(id);
