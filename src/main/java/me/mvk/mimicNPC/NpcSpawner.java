@@ -47,7 +47,7 @@ public class NpcSpawner {
         boolean caveMode = plugin.getConfig().getBoolean("spawn-in-caves", true);
         Location spawnLoc = caveMode ? findCaveLocationNear(targetPlayer.getLocation()) : null;
         if (spawnLoc == null) {
-            // Печеру не знайдено (або spawn-in-caves=false) - як і раніше, шукаємо місце на поверхні
+            // Cave don't find or spawn-in-caves=false 
             spawnLoc = findSafeLocationNear(targetPlayer.getLocation());
         }
         if (spawnLoc == null) {
@@ -57,47 +57,41 @@ public class NpcSpawner {
         NPCRegistry registry = CitizensAPI.getNPCRegistry();
         NPC npc = registry.createNPC(EntityType.PLAYER, skinOwner.getName());
 
-        // Встановлюємо скін гравця, який зараз онлайн
+        // Set player skin
         npc.getOrAddTrait(SkinTrait.class).setSkinName(skinOwner.getName(), true);
 
-        // Ховаємо нік (нейметег) над головою NPC та прибираємо з таб-листа.
-        // ВАЖЛИВО: ці налаштування мають бути виставлені ДО spawn(),
-        // інакше Citizens не встигає застосувати приховування через scoreboard.
+        // Hide NPC NameTags
         npc.data().setPersistent(net.citizensnpcs.api.npc.NPC.Metadata.NAMEPLATE_VISIBLE, false);
         npc.data().setPersistent(net.citizensnpcs.api.npc.NPC.Metadata.REMOVE_FROM_PLAYERLIST, true);
 
-        // Природно повертає голову й дивиться на гравців поруч - виглядає більш "живо"
         npc.getOrAddTrait(LookClose.class).lookClose(true);
 
         npc.spawn(spawnLoc);
         npc.setProtected(false);
         npc.data().setPersistent("randomnpc-owned", true);
 
-        // NPC "носить" не лише скін гравця, а й копію його нинішнього інвентаря на момент спавну
-        // (знімок один раз при спавні - подальші зміни в реальному інвентарі гравця вже не впливають на NPC)
+        // Copy all player inventory
         copyInventory(skinOwner, npc);
 
-        // Трохи випадкової швидкості (як у різних гравців різний "темп ходьби")
-        double speed = 0.9 + random.nextDouble() * 0.3; // 0.9x - 1.2x від базової
+        // Random run speed
+        double speed = 0.9 + random.nextDouble() * 0.3; 
         npc.getNavigator().getDefaultParameters().speedModifier((float) speed);
-        // Дозволяємо відкривати двері та обходити воду - природніша навігація
+        // Can open door and skip water
         npc.getNavigator().getDefaultParameters().avoidWater(true);
 
         plugin.getOurNpcIds().add(npc.getId());
 
-        // Починаємо захоплювати голос гравця, чий скін зараз "носить" цей NPC -
-        // саме його спотворений голос буде використано для ефекту при розкритті
+        // Starting capture player voice chat
         plugin.getVoiceCaptureManager().track(skinOwner.getUniqueId());
 
         new NpcBehaviorTask(plugin, npc, skinOwner.getUniqueId()).start();
 
-        plugin.getLogger().info("Заспавнено NPC зі скіном '" + skinOwner.getName()
-                + "' біля гравця " + targetPlayer.getName() + " у " + formatLoc(spawnLoc));
+        plugin.getLogger().info("Spawn NPC with skin '" + skinOwner.getName()
+                + "' behind player " + targetPlayer.getName() + " on " + formatLoc(spawnLoc));
     }
 
-    // Вибирає випадкового гравця з тих, хто зараз онлайн.
-    // Якщо онлайн більше одного гравця, намагається уникнути того ж гравця,
-    // біля якого спавниться NPC (щоб не виглядало як "клон самого себе").
+    //Select random online player on server
+    
     private Player pickRandomOnlinePlayer(List<Player> online, Player avoid) {
         if (online.isEmpty()) {
             return null;
@@ -113,7 +107,7 @@ public class NpcSpawner {
         return candidates.get(random.nextInt(candidates.size()));
     }
 
-    // Шукає безпечне місце (тверда земля, повітря над нею) у кільці навколо гравця
+    // Search safe place on ground
     private Location findSafeLocationNear(Location center) {
         int minR = plugin.getConfig().getInt("spawn-radius-min", 5);
         int maxR = plugin.getConfig().getInt("spawn-radius-max", 12);
@@ -141,10 +135,8 @@ public class NpcSpawner {
         return null;
     }
 
-    // Шукає місце для спавну під землею - в "печері" (повітряна кишеня зі стелею з каменю
-    // над головою, а не просто яма без даху). Використовує ту саму горизонтальну відстань
-    // від гравця (spawn-radius-min/max), що й пошук на поверхні, але шукає по висоті
-    // окремо в діапазоні cave-min-y..cave-max-y.
+    // Search safe place on caves 
+    
     private Location findCaveLocationNear(Location center) {
         int minR = plugin.getConfig().getInt("spawn-radius-min", 5);
         int maxR = plugin.getConfig().getInt("spawn-radius-max", 12);
@@ -164,8 +156,7 @@ public class NpcSpawner {
             int z = center.getBlockZ() + dz;
 
             int surfaceY = world.getHighestBlockYAt(x, z);
-            // Стеля з каменю має бути щонайменше 4 блоки завтовшки над кишенею - інакше
-            // це просто яма на поверхні, а не справжня печера
+           
             int columnTop = Math.min(maxY, surfaceY - 4);
             if (columnTop <= minY) continue;
 
@@ -183,9 +174,8 @@ public class NpcSpawner {
         return null;
     }
 
-    // Робить знімок інвентаря гравця, чий скін носить NPC, і переносить його на NPC-сутність
-    // (основний інвентар, броня, друга рука). Це саме КОПІЯ - оригінальний ItemStack клонується,
-    // тож подальші зміни в реальному інвентарі гравця NPC вже не зачіпають.
+    // Copy player inventory 
+    
     private void copyInventory(Player source, NPC npc) {
         if (!(npc.getEntity() instanceof Player npcPlayer)) {
             return;
