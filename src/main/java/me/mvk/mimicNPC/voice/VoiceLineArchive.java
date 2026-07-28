@@ -42,11 +42,6 @@ public class VoiceLineArchive {
         }
     }
 
-    /**
-     * З заданим у конфізі шансом (voice.archive-chance) зберігає кліп на диск НАЗАВЖДИ,
-     * незалежно від того, що звичайний буфер в оперативній пам'яті все одно затреться.
-     * Не впливає на саме відтворення - викликається як додатковий побічний ефект.
-     */
     public void maybeArchive(UUID skinOwnerId, String skinOwnerName, short[] pcm) {
         if (!plugin.getConfig().getBoolean("voice.archive-enabled", true)) {
             return;
@@ -80,7 +75,6 @@ public class VoiceLineArchive {
         }
     }
 
-    /** Видаляє всі збережені voiceline-файли з диску. Повертає кількість реально видалених файлів. */
     public int clearAll() {
         File dir = archiveDir();
         File[] files = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".wav"));
@@ -100,7 +94,6 @@ public class VoiceLineArchive {
         return deleted;
     }
 
-    /** Скільки voiceline-файлів наразі лежить на диску. */
     public int count() {
         File dir = archiveDir();
         File[] files = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".wav"));
@@ -118,8 +111,6 @@ public class VoiceLineArchive {
         return id == null ? "00000000" : id.toString().substring(0, 8);
     }
 
-    // Пише звичайний 16-бітний PCM моно WAV-файл (44-байтний заголовок + дані),
-    // який відкриється будь-яким плеєром без додаткових бібліотек.
     private void writeWav(File file, short[] pcm) throws IOException {
         int dataLength = pcm.length * 2;
         int byteRate = SAMPLE_RATE * 2;
@@ -129,13 +120,13 @@ public class VoiceLineArchive {
         header.putInt(36 + dataLength);
         header.put("WAVE".getBytes());
         header.put("fmt ".getBytes());
-        header.putInt(16);          // розмір fmt-чанка для PCM
-        header.putShort((short) 1); // формат аудіо = PCM
-        header.putShort((short) 1); // каналів = 1 (моно)
+        header.putInt(16);          
+        header.putShort((short) 1); 
+        header.putShort((short) 1); 
         header.putInt(SAMPLE_RATE);
         header.putInt(byteRate);
-        header.putShort((short) 2);  // block align (16 біт * 1 канал / 8)
-        header.putShort((short) 16); // біт на семпл
+        header.putShort((short) 2);  
+        header.putShort((short) 16); 
         header.put("data".getBytes());
         header.putInt(dataLength);
 
